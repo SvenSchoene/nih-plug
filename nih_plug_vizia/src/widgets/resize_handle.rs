@@ -1,40 +1,45 @@
 //! A resize handle for uniformly scaling a plugin GUI.
 
+use std::sync::Arc;
 use vizia::prelude::*;
 use vizia::vg;
 
+use super::GuiContextEvent;
+use crate::ViziaState;
+
 /// A resize handle placed at the bottom right of the window that lets you resize the window.
 ///
-/// Needs to be the last element in the GUI because of how event targetting in Vizia works right
+/// Needs to be the last element in the GUI because of how event targeting in Vizia works right
 /// now.
 ///
-/// NOTE: In vizia 0.3.0, user scale factor APIs have changed. This widget may need to be updated
-/// to use a different approach for resizing.
+/// In vizia 0.3.0, this widget uses [`GuiContextEvent::SetScaleFactor`] to resize the window
+/// by updating the scale factor stored in [`ViziaState`].
 pub struct ResizeHandle {
-    /// Will be set to `true` if we're dragging the parameter. Resetting the parameter or entering a
-    /// text value should not initiate a drag.
+    /// Reference to the ViziaState to read the current scale factor.
+    vizia_state: Arc<ViziaState>,
+
+    /// Will be set to `true` if we're dragging the handle.
     drag_active: bool,
 
     /// The scale factor when we started dragging. This is kept track of separately to avoid
     /// accumulating rounding errors.
     start_scale_factor: f64,
-    /// The DPI factor when we started dragging, includes both the HiDPI scaling and the user
-    /// scaling factor. This is kept track of separately to avoid accumulating rounding errors.
-    start_dpi_factor: f32,
-    /// The cursor position in physical screen pixels when the drag started.
-    start_physical_coordinates: (f32, f32),
+    /// The cursor position when the drag started.
+    start_cursor_pos: (f32, f32),
 }
 
 impl ResizeHandle {
     /// Create a resize handle at the bottom right of the window. This should be created at the top
     /// level. Dragging this handle around will cause the window to be resized.
-    pub fn new(cx: &mut Context) -> Handle<'_, Self> {
+    ///
+    /// The `vizia_state` parameter is needed to read the current scale factor when starting a drag.
+    pub fn new(cx: &mut Context, vizia_state: Arc<ViziaState>) -> Handle<'_, Self> {
         // Styling is done in the style sheet
         ResizeHandle {
+            vizia_state,
             drag_active: false,
             start_scale_factor: 1.0,
-            start_dpi_factor: 1.0,
-            start_physical_coordinates: (0.0, 0.0),
+            start_cursor_pos: (0.0, 0.0),
         }
         .build(cx, |_| {})
     }
@@ -58,14 +63,12 @@ impl View for ResizeHandle {
                     cx.set_active(true);
 
                     self.drag_active = true;
-                    // In vizia 0.3.0, user_scale_factor is not available on EventContext.
-                    // Using scale_factor() as a substitute for now.
-                    self.start_scale_factor = cx.scale_factor() as f64;
-                    self.start_dpi_factor = cx.scale_factor();
-                    self.start_physical_coordinates = (
-                        cx.mouse().cursor_x * self.start_dpi_factor,
-                        cx.mouse().cursor_y * self.start_dpi_factor,
-                    );
+
+                    // Store the starting cursor position
+                    self.start_cursor_pos = (cx.mouse().cursor_x, cx.mouse().cursor_y);
+
+                    // Get the current scale factor from ViziaState
+                    self.start_scale_factor = self.vizia_state.user_scale_factor();
 
                     meta.consume();
                 } else {
@@ -87,27 +90,27 @@ impl View for ResizeHandle {
                 ));
 
                 if self.drag_active {
-                    // We need to convert our measurements into physical pixels relative to the
-                    // initial drag to be able to keep a consistent ratio. This 'relative to the
-                    // start' bit is important because otherwise we would be comparing the position
-                    // to the same absoltue screen spotion.
-                    // TODO: This may start doing fun things when the window grows so large that it
-                    //       gets pushed upwards or leftwards
-                    let (compensated_physical_x, compensated_physical_y) =
-                        (x * self.start_dpi_factor, y * self.start_dpi_factor);
-                    let (start_physical_x, start_physical_y) = self.start_physical_coordinates;
-                    let _new_scale_factor = (self.start_scale_factor
-                        * (compensated_physical_x / start_physical_x)
-                            .max(compensated_physical_y / start_physical_y)
-                            as f64)
-                        // Vizia rounds borders to integer pixels, and at <0.5 scaling one pixel
-                        // borders will simply disappear
-                        .max(0.5);
+                    // Calculate how much the cursor has moved relative to the starting position
+                    let (start_x, start_y) = self.start_cursor_pos;
 
-                    // TODO: In vizia 0.3.0, set_user_scale_factor is not available.
-                    // This needs to be reimplemented using a different approach,
-                    // possibly by emitting an event to resize the window.
-                    // cx.set_user_scale_factor(new_scale_factor);
+                    // Avoid division by zero
+                    if start_x > 0.0 && start_y > 0.0 {
+                        // Calculate the relative scale based on cursor movement
+                        // The ratio of current position to start position gives the scale change
+                        let scale_x = x / start_x;
+                        let scale_y = y / start_y;
+
+                        // Use the larger of the two scale factors for uniform scaling
+                        let relative_scale = scale_x.max(scale_y) as f64;
+
+                        // Apply the relative scale to the starting scale factor
+                        let new_scale_factor = (self.start_scale_factor * relative_scale)
+                            // Clamp to reasonable bounds (0.5x to 4x)
+                            .clamp(0.5, 4.0);
+
+                        // Emit the event to update the scale factor
+                        cx.emit(GuiContextEvent::SetScaleFactor(new_scale_factor));
+                    }
                 }
             }
             _ => {}

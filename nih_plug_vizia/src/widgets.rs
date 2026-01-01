@@ -107,6 +107,10 @@ pub enum GuiContextEvent {
     /// }
     /// ```
     Resize,
+    /// Set a new scale factor for the GUI and resize the window accordingly.
+    /// This is used by the [`ResizeHandle`] widget to allow users to uniformly scale the GUI.
+    /// The scale factor is clamped to a minimum of 0.5 to prevent the UI from becoming too small.
+    SetScaleFactor(f64),
 }
 
 /// Handles parameter updates for VIZIA GUIs. Registered in
@@ -153,6 +157,25 @@ impl Model for WindowModel {
                 // handler below this to be fired
                 let (width, height) = self.vizia_state.inner_logical_size();
                 cx.emit(WindowEvent::SetSize(WindowSize { width, height }));
+
+                meta.consume();
+            }
+            GuiContextEvent::SetScaleFactor(new_scale_factor) => {
+                // Clamp the scale factor to a reasonable range
+                let clamped_scale_factor = new_scale_factor.clamp(0.5, 4.0);
+
+                // Update the scale factor in the ViziaState
+                self.vizia_state.scale_factor.store(clamped_scale_factor);
+
+                // Calculate and apply the new window size
+                let (base_width, base_height) = self.vizia_state.inner_logical_size();
+                let new_width = (base_width as f64 * clamped_scale_factor).round() as u32;
+                let new_height = (base_height as f64 * clamped_scale_factor).round() as u32;
+
+                cx.emit(WindowEvent::SetSize(WindowSize {
+                    width: new_width,
+                    height: new_height,
+                }));
 
                 meta.consume();
             }
