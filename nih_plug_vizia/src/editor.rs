@@ -6,7 +6,6 @@ use nih_plug::debug::*;
 use nih_plug::prelude::{Editor, GuiContext, ParentWindowHandle};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use vizia::context::backend::TextConfig;
 use vizia::prelude::*;
 
 use crate::widgets::RawParamEvent;
@@ -68,14 +67,12 @@ impl Editor for ViziaEditor {
 
             // And we'll link `WindowEvent::ResizeWindow` and `WindowEvent::SetScale` events to our
             // `ViziaState`. We'll notify the host when any of these change.
-            let current_inner_window_size = cx.window_size();
+            // In vizia 0.3.0, we get the initial size from ViziaState instead of cx.window_size()
+            let (initial_width, initial_height) = vizia_state.inner_logical_size();
             widgets::WindowModel {
                 context: context.clone(),
                 vizia_state: vizia_state.clone(),
-                last_inner_window_size: AtomicCell::new((
-                    current_inner_window_size.width,
-                    current_inner_window_size.height,
-                )),
+                last_inner_window_size: AtomicCell::new((initial_width, initial_height)),
             }
             .build(cx);
 
@@ -88,10 +85,6 @@ impl Editor for ViziaEditor {
         )
         .inner_size((unscaled_width, unscaled_height))
         .user_scale_factor(user_scale_factor)
-        .with_text_config(TextConfig {
-            hint: false,
-            subpixel: true,
-        })
         .on_idle({
             let emit_parameters_changed_event = self.emit_parameters_changed_event.clone();
             move |cx| {

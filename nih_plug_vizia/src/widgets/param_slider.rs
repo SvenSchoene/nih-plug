@@ -206,10 +206,10 @@ impl ParamSlider {
                 cx.emit(TextEvent::StartEdit);
                 cx.emit(TextEvent::SelectAll);
             })
-            // `.child_space(Stretch(1.0))` no longer works
+            // Center content vertically using top/bottom stretch
             .class("align_center")
-            .child_top(Stretch(1.0))
-            .child_bottom(Stretch(1.0))
+            .top(Stretch(1.0))
+            .bottom(Stretch(1.0))
             .height(Stretch(1.0))
             .width(Stretch(1.0));
     }
@@ -280,7 +280,7 @@ impl ParamSlider {
                         Label::new(cx, preview_lens)
                             .class("value")
                             .class("value--multiple")
-                            .child_space(Stretch(1.0))
+                            .space(Stretch(1.0))
                             .height(Stretch(1.0))
                             .width(Stretch(1.0))
                             .hoverable(false);
@@ -300,7 +300,7 @@ impl ParamSlider {
                     }
                     .class("value")
                     .class("value--single")
-                    .child_space(Stretch(1.0))
+                    .space(Stretch(1.0))
                     .height(Stretch(1.0))
                     .width(Stretch(1.0))
                     .hoverable(false);
@@ -478,14 +478,14 @@ impl View for ParamSlider {
                     self.param_base.begin_set_parameter(cx);
                     if cx.modifiers().shift() {
                         self.granular_drag_status = Some(GranularDragStatus {
-                            starting_x_coordinate: cx.mouse().cursorx,
+                            starting_x_coordinate: cx.mouse().cursor_x,
                             starting_value: self.param_base.unmodulated_normalized_value(),
                         });
                     } else {
                         self.granular_drag_status = None;
                         self.set_normalized_value_drag(
                             cx,
-                            util::remap_current_entity_x_coordinate(cx, cx.mouse().cursorx),
+                            util::remap_current_entity_x_coordinate(cx, cx.mouse().cursor_x),
                         );
                     }
                 }
@@ -558,7 +558,7 @@ impl View for ParamSlider {
                     self.granular_drag_status = None;
                     self.param_base.set_normalized_value(
                         cx,
-                        util::remap_current_entity_x_coordinate(cx, cx.mouse().cursorx),
+                        util::remap_current_entity_x_coordinate(cx, cx.mouse().cursor_x),
                     );
                 }
             }

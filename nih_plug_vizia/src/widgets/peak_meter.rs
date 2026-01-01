@@ -115,14 +115,14 @@ impl PeakMeter {
                         .overflow(Overflow::Visible);
 
                         if needs_minus_offset {
-                            label.child_right(Pixels(font_size * 0.15));
+                            label.right(Pixels(font_size * 0.15));
                         }
                     })
                     .height(Stretch(1.0))
                     .left(Percentage(tick_pct - (WIDTH_PCT / 2.0)))
                     .width(Percentage(WIDTH_PCT))
-                    .child_left(Stretch(1.0))
-                    .child_right(Stretch(1.0))
+                    .left(Stretch(1.0))
+                    .right(Stretch(1.0))
                     .overflow(Overflow::Visible);
                 }
             })
@@ -144,7 +144,7 @@ where
     L: Lens<Target = f32>,
     P: Lens<Target = f32>,
 {
-    fn draw(&self, cx: &mut DrawContext, canvas: &mut Canvas) {
+    fn draw(&self, cx: &mut DrawContext, canvas: &Canvas) {
         let level_dbfs = self.level_dbfs.get(cx);
         let peak_dbfs = self.peak_dbfs.get(cx);
 
@@ -159,29 +159,30 @@ where
         let background_color = cx.background_color();
         let border_color = cx.border_color();
         let opacity = cx.opacity();
-        let mut background_color: vg::Color = background_color.into();
-        background_color.set_alphaf(background_color.a * opacity);
-        let mut border_color: vg::Color = border_color.into();
-        border_color.set_alphaf(border_color.a * opacity);
         let border_width = cx.border_width();
 
+        // Create background path
         let mut path = vg::Path::new();
         {
             let x = bounds.x + border_width / 2.0;
             let y = bounds.y + border_width / 2.0;
             let w = bounds.w - border_width;
             let h = bounds.h - border_width;
-            path.move_to(x, y);
-            path.line_to(x, y + h);
-            path.line_to(x + w, y + h);
-            path.line_to(x + w, y);
-            path.line_to(x, y);
+            path.move_to((x, y));
+            path.line_to((x, y + h));
+            path.line_to((x + w, y + h));
+            path.line_to((x + w, y));
             path.close();
         }
 
         // Fill with background color
-        let paint = vg::Paint::color(background_color);
-        canvas.fill_path(&path, &paint);
+        let mut bg_paint = vg::Paint::default();
+        let bg_rgba = background_color.get_rgba();
+        let bg_alpha = (bg_rgba.alpha as f32 * opacity) as u8;
+        bg_paint.set_color(vg::Color::from_argb(bg_alpha, bg_rgba.red, bg_rgba.green, bg_rgba.blue));
+        bg_paint.set_style(vg::PaintStyle::Fill);
+        bg_paint.set_anti_alias(true);
+        canvas.draw_path(&path, &bg_paint);
 
         // And now for the fun stuff. We'll try to not overlap the border, but we'll draw that last
         // just in case.
@@ -202,21 +203,20 @@ where
                 break;
             }
 
-            // femtovg draws paths centered on these coordinates, so in order to be pixel perfect we
-            // need to account for that. Otherwise the ticks will be 2px wide instead of 1px.
-            let mut path = vg::Path::new();
-            path.move_to(tick_x as f32 + (dpi_scale / 2.0), bar_bounds.top());
-            path.line_to(tick_x as f32 + (dpi_scale / 2.0), bar_bounds.bottom());
+            // Draw tick line
+            let mut tick_path = vg::Path::new();
+            tick_path.move_to((tick_x as f32 + (dpi_scale / 2.0), bar_bounds.top()));
+            tick_path.line_to((tick_x as f32 + (dpi_scale / 2.0), bar_bounds.bottom()));
 
             let grayscale_color = 0.3 + ((1.0 - tick_fraction) * 0.5);
-            let mut paint = vg::Paint::color(vg::Color::rgbaf(
-                grayscale_color,
-                grayscale_color,
-                grayscale_color,
-                opacity,
-            ));
-            paint.set_line_width(TICK_WIDTH * dpi_scale);
-            canvas.stroke_path(&path, &paint);
+            let gray_u8 = (grayscale_color * 255.0) as u8;
+            let alpha_u8 = (opacity * 255.0) as u8;
+            let mut tick_paint = vg::Paint::default();
+            tick_paint.set_color(vg::Color::from_argb(alpha_u8, gray_u8, gray_u8, gray_u8));
+            tick_paint.set_stroke_width(TICK_WIDTH * dpi_scale);
+            tick_paint.set_style(vg::PaintStyle::Stroke);
+            tick_paint.set_anti_alias(true);
+            canvas.draw_path(&tick_path, &tick_paint);
         }
 
         // Draw the hold peak value if the hold time option has been set
@@ -226,21 +226,29 @@ where
                 + ((bar_ticks_end_x - bar_ticks_start_x) as f32 * tick_fraction).round()
         };
         if (MIN_TICK..MAX_TICK).contains(&peak_dbfs) {
-            // femtovg draws paths centered on these coordinates, so in order to be pixel perfect we
-            // need to account for that. Otherwise the ticks will be 2px wide instead of 1px.
             let peak_x = db_to_x_coord(peak_dbfs);
-            let mut path = vg::Path::new();
-            path.move_to(peak_x + (dpi_scale / 2.0), bar_bounds.top());
-            path.line_to(peak_x + (dpi_scale / 2.0), bar_bounds.bottom());
+            let mut peak_path = vg::Path::new();
+            peak_path.move_to((peak_x + (dpi_scale / 2.0), bar_bounds.top()));
+            peak_path.line_to((peak_x + (dpi_scale / 2.0), bar_bounds.bottom()));
 
-            let mut paint = vg::Paint::color(vg::Color::rgbaf(0.3, 0.3, 0.3, opacity));
-            paint.set_line_width(TICK_WIDTH * dpi_scale);
-            canvas.stroke_path(&path, &paint);
+            let alpha_u8 = (opacity * 255.0) as u8;
+            let gray_u8 = 77u8; // ~0.3 * 255
+            let mut peak_paint = vg::Paint::default();
+            peak_paint.set_color(vg::Color::from_argb(alpha_u8, gray_u8, gray_u8, gray_u8));
+            peak_paint.set_stroke_width(TICK_WIDTH * dpi_scale);
+            peak_paint.set_style(vg::PaintStyle::Stroke);
+            peak_paint.set_anti_alias(true);
+            canvas.draw_path(&peak_path, &peak_paint);
         }
 
         // Draw border last
-        let mut paint = vg::Paint::color(border_color);
-        paint.set_line_width(border_width);
-        canvas.stroke_path(&path, &paint);
+        let mut border_paint = vg::Paint::default();
+        let border_rgba = border_color.get_rgba();
+        let border_alpha = (border_rgba.alpha as f32 * opacity) as u8;
+        border_paint.set_color(vg::Color::from_argb(border_alpha, border_rgba.red, border_rgba.green, border_rgba.blue));
+        border_paint.set_stroke_width(border_width);
+        border_paint.set_style(vg::PaintStyle::Stroke);
+        border_paint.set_anti_alias(true);
+        canvas.draw_path(&path, &border_paint);
     }
 }
