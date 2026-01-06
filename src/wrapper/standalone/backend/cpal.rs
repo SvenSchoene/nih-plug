@@ -827,15 +827,23 @@ impl CpalMidir {
 
             {
                 // Even though we told CPAL that we wanted `buffer_size` samples, it may still give
-                // us fewer. If we receive more than what we configured, then this will panic.
+                // us fewer samples, or in WASAPI shared mode, sometimes more samples. If we receive
+                // more than configured, we process in chunks to avoid panicking.
                 let actual_sample_count = data.len() / num_output_channels;
-                assert!(
-                    actual_sample_count <= buffer_size,
-                    "Received {actual_sample_count} samples, while the configured buffer size is \
-                     {buffer_size}"
-                );
+                let samples_to_process = actual_sample_count.min(buffer_size);
+
+                // Log a warning if we received more samples than expected (only once per callback)
+                if actual_sample_count > buffer_size {
+                    // This can happen with WASAPI shared mode - just process what we can
+                    // The extra samples will be filled with zeros or the last processed values
+                    nih_log!(
+                        "Received {actual_sample_count} samples, but configured buffer size is \
+                         {buffer_size}. Processing first {samples_to_process} samples. \
+                         Consider using --period-size {actual_sample_count} to avoid this."
+                    );
+                }
                 let buffers = unsafe {
-                    buffer_manager.create_buffers(0, actual_sample_count, |buffer_sources| {
+                    buffer_manager.create_buffers(0, samples_to_process, |buffer_sources| {
                         *buffer_sources.main_output_channel_pointers = Some(ChannelPointers {
                             ptrs: NonNull::new(main_io_channel_pointers.get().as_mut_ptr())
                                 .unwrap(),
@@ -901,13 +909,24 @@ impl CpalMidir {
                 }
             }
 
-            // The buffer's samples need to be written to `data` in an interlaced format
+            // The buffer's samples need to be written to `data` in an interlaced format.
+            // If we received more samples than configured, only the first buffer_size samples
+            // were processed. Fill the rest with zeros to avoid out-of-bounds access.
             // SAFETY: Dropping `buffers` allows us to borrow `main_io_storage` again
+            let actual_sample_count = data.len() / num_output_channels;
             for (i, output_sample) in data.iter_mut().enumerate() {
                 let ch = i % num_output_channels;
                 let n = i / num_output_channels;
-                *output_sample = T::from_sample(main_io_storage[ch][n]);
+                if n < buffer_size {
+                    *output_sample = T::from_sample(main_io_storage[ch][n]);
+                } else {
+                    // Fill excess samples with silence
+                    *output_sample = T::from_sample(0.0f32);
+                }
             }
+
+            // Track processed samples using the actual count for correct transport position
+            num_processed_samples += actual_sample_count;
 
             if let Some(output_event_rb_producer) = &mut output_event_rb_producer {
                 for event in midi_output_events.drain(..) {
@@ -920,8 +939,6 @@ impl CpalMidir {
                     }
                 }
             }
-
-            num_processed_samples += buffer_size;
         }
     }
 }

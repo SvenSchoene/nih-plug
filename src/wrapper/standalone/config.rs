@@ -29,7 +29,10 @@ pub struct WrapperConfig {
     /// The audio backend's period size.
     ///
     /// This setting is ignored when using the JACK backend.
-    #[clap(value_parser, short = 'p', long, default_value = "512")]
+    /// Note: WASAPI shared mode may use larger buffers internally. The default of 2048
+    /// provides good compatibility with most systems. Use --period-size to reduce
+    /// latency if your audio device supports smaller buffers.
+    #[clap(value_parser, short = 'p', long, default_value = "2048")]
     pub period_size: u32,
 
     /// The input device for the ALSA, CoreAudio, and WASAPI backends. No input will be connected if
