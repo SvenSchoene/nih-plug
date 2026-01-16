@@ -341,8 +341,8 @@ impl XyPad {
     /// space there, the tooltip will be pushed to the left or the right of the cursor.
     fn update_tooltip_pos(&mut self, cx: &mut EventContext) {
         let bounds = cx.cache.get_bounds(cx.current());
-        let relative_x = cx.mouse().cursorx - bounds.x;
-        let relative_y = cx.mouse().cursory - bounds.y;
+        let relative_x = cx.mouse().cursor_x - bounds.x;
+        let relative_y = cx.mouse().cursor_y - bounds.y;
 
         // These positions need to take DPI scaling into account
         let dpi_scale = cx.scale_factor();
@@ -452,16 +452,16 @@ impl View for XyPad {
                     self.begin_set_parameters(cx);
                     if cx.modifiers().shift() {
                         self.granular_drag_status = Some(GranularDragStatus {
-                            starting_x_coordinate: cx.mouse().cursorx,
+                            starting_x_coordinate: cx.mouse().cursor_x,
                             x_starting_value: self.x_param_base.unmodulated_normalized_value(),
-                            starting_y_coordinate: cx.mouse().cursory,
+                            starting_y_coordinate: cx.mouse().cursor_y,
                             y_starting_value: self.y_param_base.unmodulated_normalized_value(),
                         });
                     } else {
                         self.granular_drag_status = None;
                         self.set_normalized_values_for_mouse_pos(
                             cx,
-                            (cx.mouse().cursorx, cx.mouse().cursory),
+                            (cx.mouse().cursor_x, cx.mouse().cursor_y),
                             false,
                         );
                     }
@@ -567,7 +567,7 @@ impl View for XyPad {
                     self.granular_drag_status = None;
                     self.set_normalized_values_for_mouse_pos(
                         cx,
-                        (cx.mouse().cursorx, cx.mouse().cursory),
+                        (cx.mouse().cursor_x, cx.mouse().cursor_y),
                         cx.modifiers().alt(),
                     );
                 }
