@@ -376,20 +376,34 @@ impl<P: Vst3Plugin> IPlugView for WrapperView<P> {
     unsafe fn on_size(&self, new_size: *mut ViewRect) -> tresult {
         check_null_ptr!(new_size);
 
-        // TODO: Implement Host->Plugin resizing
-        let (unscaled_width, unscaled_height) = self.editor.lock().size();
         let scaling_factor = self.scaling_factor.load(Ordering::Relaxed);
-        let (editor_width, editor_height) = (
-            (unscaled_width as f32 * scaling_factor).round() as i32,
-            (unscaled_height as f32 * scaling_factor).round() as i32,
-        );
-
         let width = (*new_size).right - (*new_size).left;
         let height = (*new_size).bottom - (*new_size).top;
-        if width == editor_width && height == editor_height {
-            kResultOk
+
+        // Convert from scaled (physical) to unscaled (logical) pixels
+        let unscaled_width = (width as f32 / scaling_factor).round() as u32;
+        let unscaled_height = (height as f32 / scaling_factor).round() as u32;
+
+        // Try to set the new size on the editor
+        let editor = self.editor.lock();
+        if editor.can_resize() {
+            if editor.set_size(unscaled_width, unscaled_height) {
+                kResultOk
+            } else {
+                kResultFalse
+            }
         } else {
-            kResultFalse
+            // If editor doesn't support resizing, only accept if size matches current
+            let (current_width, current_height) = editor.size();
+            let (editor_width, editor_height) = (
+                (current_width as f32 * scaling_factor).round() as i32,
+                (current_height as f32 * scaling_factor).round() as i32,
+            );
+            if width == editor_width && height == editor_height {
+                kResultOk
+            } else {
+                kResultFalse
+            }
         }
     }
 
@@ -425,8 +439,11 @@ impl<P: Vst3Plugin> IPlugView for WrapperView<P> {
     }
 
     unsafe fn can_resize(&self) -> tresult {
-        // TODO: Implement Host->Plugin resizing
-        kResultFalse
+        if self.editor.lock().can_resize() {
+            kResultOk
+        } else {
+            kResultFalse
+        }
     }
 
     unsafe fn check_size_constraint(&self, rect: *mut ViewRect) -> tresult {
